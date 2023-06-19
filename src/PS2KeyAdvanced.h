@@ -11,6 +11,7 @@
     November 2020 Add support for STM32 from user Hiabuto-de
                   Tested on STM32Duino-Framework and PlatformIO on STM32F103C8T6 and an IBM Model M
     July 2021   Add workaround for ESP32 issue with Silicon (hardware) from user submissions
+  Updated June 2023 - Alex Swedenburg - Modify to use with Pico SDK instead of Arduino
 
   IMPORTANT WARNING
  
@@ -137,41 +138,6 @@
 */
 #ifndef PS2KeyAdvanced_h
 #define PS2KeyAdvanced_h
-
-// Platform specific areas
-// Harvard architecture settings for PROGMEM
-// Add separate for EACH architecture as easier to maintain
-// AVR (includes Teensy 2.0)
-#if defined( ARDUINO_ARCH_AVR )
-#define PS2_SUPPORTED           1
-#define PS2_REQUIRES_PROGMEM    1
-#define PS2_CLEAR_PENDING_IRQ   1
-#endif
-// SAM (Due)
-#if defined( ARDUINO_ARCH_SAM )
-#define PS2_SUPPORTED           1
-#define PS2_CLEAR_PENDING_IRQ   1
-#endif
-// SAMD1
-#if defined( ARDUINO_ARCH_SAMD1 )
-#define PS2_SUPPORTED           1
-#define PS2_CLEAR_PENDING_IRQ   1
-#endif
-// STM32
-#if defined( ARDUINO_ARCH_STM32 )
-#define PS2_SUPPORTED           1
-#define PS2_CLEAR_PENDING_IRQ   1
-#endif
-// ESP32
-#if defined( ARDUINO_ARCH_ESP32 )
-#define PS2_SUPPORTED           1
-#define PS2_ONLY_CHANGE_IRQ     1
-#endif
-
-// Invalid architecture
-#if !( defined( PS2_SUPPORTED ) )
-#warning Library is NOT supported on this board Use at your OWN risk
-#endif
 
 /* Flags/bit masks for status bits in returned unsigned int value */
 #define PS2_BREAK   0x8000
@@ -365,6 +331,10 @@
 #define PS2_KEY_LANG4       0X99
 #define PS2_KEY_LANG5       0xA0
 
+/* Support for types used in the header file */
+#include <cstdint>
+typedef unsigned char byte;
+
 /*
   Purpose: Provides advanced access to PS2 keyboards
   Public class definitions
@@ -373,15 +343,20 @@
  */
 class PS2KeyAdvanced {
   public:
-  	/* This constructor does basically nothing. Please call the begin(int,int)
+  	/* This constructor does basically nothing. Please call the begin()
   	   method before using any other method of this class. 	 */
     PS2KeyAdvanced( );
 
     /* Starts the keyboard "service" by registering the external interrupt.
        setting the pin modes correctly and driving those needed to high.
        Sets default LOCK status (LEDs) to passed in value or default of all off
-       The best place to call this method is in the setup routine.    */
-    void begin( uint8_t, uint8_t );
+       The best place to call this method is in the setup routine.
+
+       A callback function must be specified which calls ps2interrupt upon
+       receiving a falling edge on the PS2 clock pin (this is due to the fact
+       that the Pico can have only one GPIO IRQ handler and other pins may also
+       need callbacks) */
+    void begin( uint8_t, uint8_t, void(*)(uint, uint32_t) );
 
     /* Returns number of codes available or 0 for none */
     uint8_t available( );
@@ -436,5 +411,8 @@ class PS2KeyAdvanced {
          default in keyboard is 1 = 0.5 second delay
         Returned data in keyboard buffer read as keys */
     int typematic( uint8_t , uint8_t );
+
+    /* Callback for GPIO events related to PS2 clock pin */
+    void ps2interrupt( void );
 };
 #endif

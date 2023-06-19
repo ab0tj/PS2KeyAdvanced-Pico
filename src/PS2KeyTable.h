@@ -4,6 +4,7 @@
   Written by Paul Carpenter, PC Services <sales@pcserviceselectronics.co.uk>
   Created September 2014
   V1.0.2 Updated January 2016 - Paul Carpenter - add tested on Due and tidy ups for V1.5 Library Management
+  Updated June 2023 - Alex Swedenburg - Modify to use with Pico SDK instead of Arduino
   
   PRIVATE to library
 
@@ -56,6 +57,9 @@
 #ifndef PS2KeyTable_h
 #define PS2KeyTable_h
 
+/* Support types used in the header */
+#include <cstdint>
+
 /* Table contents are pairs of numbers
     first code from keyboard
     second is either PS2_KEY_IGNOPRE code or key code to return
@@ -64,11 +68,7 @@
     In codes can only be 1 - 0x9F, plus 0xF2 and 0xF1
     Out Codes in range 1 to 0x9F
 */
-#if defined(PS2_REQUIRES_PROGMEM)
-const uint8_t PROGMEM single_key[][ 2 ] = {
-#else
 const uint8_t single_key[][ 2 ] = {
-#endif
                 { PS2_KC_NUM, PS2_KEY_NUM },
                 { PS2_KC_SCROLL, PS2_KEY_SCROLL },
                 { PS2_KC_CAPS, PS2_KEY_CAPS },
@@ -183,11 +183,7 @@ const uint8_t single_key[][ 2 ] = {
                 };
 
 /* Two byte Key  table after an E0 byte received */
-#if defined(PS2_REQUIRES_PROGMEM)
-const uint8_t PROGMEM extended_key[][ 2 ] = {
-#else
 const uint8_t extended_key[][ 2 ] = {
-#endif
                 { PS2_KC_IGNORE, PS2_KEY_IGNORE },
                 { PS2_KC_PRTSCR, PS2_KEY_PRTSCR },
                 { PS2_KC_CTRL, PS2_KEY_R_CTRL },
@@ -233,11 +229,7 @@ const uint8_t extended_key[][ 2 ] = {
 
 /* Scroll lock numeric keypad re-mappings for NOT NUMLOCK */
 /* in translated code order order is important */
-#if defined(PS2_REQUIRES_PROGMEM)
-const uint8_t PROGMEM scroll_remap[] = {
-#else
 const uint8_t scroll_remap[] = {
-#endif
                 PS2_KEY_INSERT,     // PS2_KEY_KP0
                 PS2_KEY_END,        // PS2_KEY_KP1
                 PS2_KEY_DN_ARROW,   // PS2_KEY_KP2

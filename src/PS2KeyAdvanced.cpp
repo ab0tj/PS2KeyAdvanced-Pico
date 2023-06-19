@@ -11,14 +11,15 @@
     November 2020 Add support for STM32 from user Hiabuto-de
                   Tested on STM32Duino-Framework and PlatformIO on STM32F103C8T6 and an IBM Model M
     July 2021   Add workaround for ESP32 issue with Silicon (hardware) from user submissions
+  Updated June 2023 - Alex Swedenburg - Modify to use with Pico SDK instead of Arduino
 
   IMPORTANT WARNING
  
-    If using a DUE or similar board with 3V3 I/O you MUST put a level translator 
+    If using a Pico or similar board with 3V3 I/O you MUST put a level translator 
     like a Texas Instruments TXS0102 or FET circuit as the signals are 
     Bi-directional (signals transmitted from both ends on same wire).
  
-    Failure to do so may damage your Arduino Due or similar board.
+    Failure to do so may damage your Pi Pico or similar board.
 
   Test History
     September 2014 Uno and Mega 2560 September 2014 using Arduino V1.6.0
@@ -132,12 +133,19 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-#include <Arduino.h>
+/* Pico compatibility stuff */
+#include "pico/stdlib.h"
+#include "hardware/gpio.h"
+#include "pico/time.h"
+#define LOW  0
+#define HIGH 1
+#define OUTPUT GPIO_OUT
+#define INPUT GPIO_IN
+
 // Internal headers for library defines/codes/etc
 #include "PS2KeyAdvanced.h"
 #include "PS2KeyCode.h"
 #include "PS2KeyTable.h"
-
 
 // Private function declarations
 void send_bit( void );
@@ -150,11 +158,7 @@ void set_lock( );
 
 /* Constant control functions to flags array
    in translated key code value order  */
-#if defined( PS2_REQUIRES_PROGMEM )
-const uint8_t PROGMEM control_flags[] = {
-#else
 const uint8_t control_flags[] = {
-#endif
                 _SHIFT, _SHIFT, _CTRL, _CTRL,
                 _ALT, _ALT_GR, _GUI, _GUI
                 };
@@ -198,9 +202,10 @@ uint8_t _mode = 0;            // Mode for output buffer contains
           /* _NO_REPEATS 0x80 No repeat make codes for _CTRL, _ALT, _SHIFT, _GUI
              _NO_BREAKS  0x08 No break codes */
 
-// Arduino settings for pins and interrupts Needed to send data
+// Settings for pins and interrupts Needed to send data
 uint8_t PS2_DataPin;
 uint8_t PS2_IrqPin;
+void(*gpioCallback)(uint, uint32_t);
 
 // Key decoding variables
 uint8_t PS2_led_lock = 0;     // LED and Lock status
@@ -217,10 +222,6 @@ uint8_t PS2_keystatus;        // current CAPS etc status for top byte
 void ps2interrupt( void )
 {
 // Workaround for ESP32 SILICON error see extra/Porting.md
-#ifdef PS2_ONLY_CHANGE_IRQ
-if( digitalRead( PS2_IrqPin ) )
-   return;
-#endif
 if( _ps2mode & _TX_MODE )
   send_bit( );
 else
@@ -229,9 +230,9 @@ else
   uint32_t now_ms;
   uint8_t val, ret;
 
-  val = digitalRead( PS2_DataPin );
+  val = gpio_get( PS2_DataPin );
   /* timeout catch for glitches reset everything */
-  now_ms = millis( );
+  now_ms = to_ms_since_boot(get_absolute_time());
   if( now_ms - prev_ms > 250 )
     {
     _bitcount = 0;
@@ -415,11 +416,6 @@ _bitcount++;               // Now point to next bit
 switch( _bitcount )
   {
   case 1: 
-#if defined( PS2_CLEAR_PENDING_IRQ ) 
-          // Start bit due to Arduino bug
-          digitalWrite( PS2_DataPin, LOW );
-          break;
-#endif
   case 2:
   case 3:
   case 4:
@@ -430,13 +426,13 @@ switch( _bitcount )
   case 9:
           // Data bits
           val = _shiftdata & 0x01;   // get LSB
-          digitalWrite( PS2_DataPin, val ); // send start bit
+          gpio_put( PS2_DataPin, val ); // send start bit
           _parity += val;            // another one received ?
           _shiftdata >>= 1;          // right _SHIFT one place for next bit
           break;
   case 10:
           // Parity - Send LSB if 1 = odd number of 1's so parity should be 0
-          digitalWrite( PS2_DataPin, ( ~_parity & 1 ) );
+          gpio_put( PS2_DataPin, ( ~_parity & 1 ) );
           break;
   case 11: // Stop bit write change to input pull up for high stop bit
           pininput( PS2_DataPin );
@@ -450,8 +446,8 @@ switch( _bitcount )
           // clear modes to receive again
           _ps2mode &= ~_TX_MODE;
           if( _tx_ready & _HANDSHAKE )      // If _HANDSHAKE done
-            _tx_ready &= ~_HANDSHAKE;
-          else                              // else we finished a command
+            _tx_ready &= _HANDSHAKE;                   // else we finished a command
+          else
             _tx_ready &= ~_COMMAND;
           if( !( _ps2mode & _WAIT_RESPONSE ) )   //  if not wait response
             send_next( );                    // check anything else to queue up
@@ -478,11 +474,7 @@ void send_now( uint8_t command )
 {
 _shiftdata = command;
 _now_send = command;     // copy for later to save in last sent
-#if defined( PS2_CLEAR_PENDING_IRQ ) 
-_bitcount = 0;          // AVR/SAM ignore extra interrupt
-#else
 _bitcount = 1;          // Normal processors
-#endif
 _parity = 0;
 _ps2mode |= _TX_MODE + _PS2_BUSY;
 
@@ -495,25 +487,25 @@ if( !( _tx_ready & _HANDSHAKE ) && ( _tx_ready & _COMMAND ) )
 
 // STOP interrupt handler 
 // Setting pin output low will cause interrupt before ready
-detachInterrupt( digitalPinToInterrupt( PS2_IrqPin ) );
+gpio_set_irq_enabled(PS2_IrqPin, GPIO_IRQ_EDGE_FALL, false); //detachInterrupt( digitalPinToInterrupt( PS2_IrqPin ) );
 // set pins to outputs and high
-digitalWrite( PS2_DataPin, HIGH );
-pinMode( PS2_DataPin, OUTPUT );
-digitalWrite( PS2_IrqPin, HIGH );
-pinMode( PS2_IrqPin, OUTPUT );
+gpio_put( PS2_DataPin, HIGH );
+gpio_set_dir( PS2_DataPin, OUTPUT );
+gpio_put( PS2_IrqPin, HIGH );
+gpio_set_dir( PS2_IrqPin, OUTPUT );
 // Essential for PS2 spec compliance
-delayMicroseconds( 10 );
+sleep_us( 10 );
 // set Clock LOW
-digitalWrite( PS2_IrqPin, LOW );
+gpio_put( PS2_IrqPin, LOW );
 // Essential for PS2 spec compliance
 // set clock low for 60us
-delayMicroseconds( 60 );
+sleep_us( 60 );
 // Set data low - Start bit
-digitalWrite( PS2_DataPin, LOW );
+gpio_put( PS2_DataPin, LOW );
 // set clock to input_pullup data stays output while writing to keyboard
 pininput( PS2_IrqPin );
 // Restart interrupt handler
-attachInterrupt( digitalPinToInterrupt( PS2_IrqPin ), ps2interrupt, FALLING );
+gpio_set_irq_enabled_with_callback(PS2_IrqPin, GPIO_IRQ_EDGE_FALL, true, gpioCallback); //attachInterrupt( PS2_IrqPin ), ps2interrupt, FALLING );
 //  wait clock interrupt to send data
 }
 
@@ -601,18 +593,15 @@ if( ret != _tx_tail )
 return -4;
 }
 
-
 // initialize a data pin for input
 void pininput( uint8_t pin )
 {
-#ifdef INPUT_PULLUP
-pinMode( pin, INPUT_PULLUP );
-#else
-digitalWrite( pin, HIGH );
-pinMode( pin, INPUT );
-#endif
+/* digitalWrite( pin, HIGH );
+pinMode( pin, INPUT ); */
+gpio_set_dir(pin, GPIO_IN);
+gpio_put(pin, HIGH);
+gpio_pull_up(pin);
 }
-
 
 void ps2_reset( void )
 {
@@ -691,15 +680,9 @@ if( index & _E0_MODE )
   {
   length = sizeof( extended_key ) / sizeof( extended_key[ 0 ] );
   for( index = 0; index < length; index++ )
-#if defined( PS2_REQUIRES_PROGMEM )
-     if( data == pgm_read_byte( &extended_key[ index ][ 0 ] ) )
-       {
-       retdata = pgm_read_byte( &extended_key[ index ][ 1 ] );
-#else
      if( data == extended_key[ index ][ 0 ] )
        {
        retdata = extended_key[ index ][ 1 ];
-#endif
        break;
        }
   }
@@ -707,15 +690,9 @@ else
   {
   length = sizeof( single_key ) / sizeof( single_key[ 0 ] );
   for( index = 0; index < length; index++ )
-#if defined( PS2_REQUIRES_PROGMEM )
-     if( data == pgm_read_byte( &single_key[ index ][ 0 ] ) )
-       {
-       retdata = pgm_read_byte( &single_key[ index ][ 1 ] );
-#else
      if( data == single_key[ index ][ 0 ] )
        {
        retdata = single_key[ index ][ 1 ];
-#endif
        break;
        }
   }
@@ -767,12 +744,8 @@ if( retdata > 0 )
     }
   else
     if( retdata >= PS2_KEY_L_SHIFT && retdata <= PS2_KEY_R_GUI )
-      { // Update bits for _SHIFT, _CTRL, _ALT, _ALT GR, _GUI in status
-#if defined( PS2_REQUIRES_PROGMEM )
-      index = pgm_read_byte( &control_flags[ retdata - PS2_KEY_L_SHIFT ] );
-#else
+      { // Update bits for _SHIFT, _CTRL, _ALT, _ALT GR, _GUI in statu
       index = control_flags[ retdata - PS2_KEY_L_SHIFT ];
-#endif
       if( PS2_keystatus & _BREAK )
         PS2_keystatus &= ~index;
       else
@@ -786,11 +759,7 @@ if( retdata > 0 )
       // Numeric keypad ONLY works in numlock state or when _SHIFT status
       if( retdata >= PS2_KEY_KP0 && retdata <=  PS2_KEY_KP_DOT )
         if( !( PS2_led_lock & PS2_LOCK_NUM ) || ( PS2_keystatus & _SHIFT ) )
-#if defined( PS2_REQUIRES_PROGMEM )
-          retdata = pgm_read_byte( &scroll_remap[ retdata - PS2_KEY_KP0 ] );
-#else
           retdata = scroll_remap[ retdata - PS2_KEY_KP0 ];
-#endif
   // Sort break code handling or ignore for all having processed the _SHIFT etc status
   if( ( PS2_keystatus & _BREAK ) && ( _mode & _NO_BREAKS ) )
     return ( uint16_t )PS2_KEY_IGNORE;
@@ -999,7 +968,7 @@ PS2KeyAdvanced::PS2KeyAdvanced( )
 
 
 /* instantiate class for keyboard  */
-void PS2KeyAdvanced::begin( uint8_t data_pin, uint8_t irq_pin )
+void PS2KeyAdvanced::begin( uint8_t data_pin, uint8_t irq_pin, void(*cb)(uint, uint32_t) )
 {
 /* PS2 variables reset */
 ps2_reset( );
@@ -1008,9 +977,12 @@ PS2_DataPin = data_pin;
 PS2_IrqPin = irq_pin;
 
 // initialize the pins
+gpio_init(PS2_IrqPin);
 pininput( PS2_IrqPin );            /* Setup Clock pin */
+gpio_init(PS2_DataPin);
 pininput( PS2_DataPin );           /* Setup Data pin */
 
 // Start interrupt handler
-attachInterrupt( digitalPinToInterrupt( irq_pin ), ps2interrupt, FALLING );
+gpioCallback = cb;
+gpio_set_irq_enabled_with_callback(PS2_IrqPin, GPIO_IRQ_EDGE_FALL, true, cb);
 }
