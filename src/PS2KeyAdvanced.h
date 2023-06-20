@@ -412,7 +412,9 @@ class PS2KeyAdvanced {
         Returned data in keyboard buffer read as keys */
     int typematic( uint8_t , uint8_t );
 
+
     /* Callback for GPIO events related to PS2 clock pin */
     void ps2interrupt( void );
 };
+
 #endif

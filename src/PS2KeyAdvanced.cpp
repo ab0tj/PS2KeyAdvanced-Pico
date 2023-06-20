@@ -136,6 +136,7 @@
 /* Pico compatibility stuff */
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
+#include "hardware/sync.h"
 #include "pico/time.h"
 #define LOW  0
 #define HIGH 1
@@ -219,7 +220,7 @@ uint8_t PS2_keystatus;        // current CAPS etc status for top byte
    To receive 11 bits - start 8 data, ODD parity, stop
    To send data calls send_bit( )
    Interrupt every falling incoming clock edge from keyboard */
-void ps2interrupt( void )
+void PS2KeyAdvanced::ps2interrupt( void )
 {
 // Workaround for ESP32 SILICON error see extra/Porting.md
 if( _ps2mode & _TX_MODE )
@@ -494,12 +495,12 @@ gpio_set_dir( PS2_DataPin, OUTPUT );
 gpio_put( PS2_IrqPin, HIGH );
 gpio_set_dir( PS2_IrqPin, OUTPUT );
 // Essential for PS2 spec compliance
-sleep_us( 10 );
+busy_wait_us( 10 );
 // set Clock LOW
 gpio_put( PS2_IrqPin, LOW );
 // Essential for PS2 spec compliance
 // set clock low for 60us
-sleep_us( 60 );
+busy_wait_us( 60 );
 // Set data low - Start bit
 gpio_put( PS2_DataPin, LOW );
 // set clock to input_pullup data stays output while writing to keyboard
