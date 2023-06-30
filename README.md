@@ -32,7 +32,7 @@ to work with 'native' PS2 keyboards.
 ## Introduction
 After looking round for suitable libraries techpaul found that most were lacking in functionality and high in code and data footprint, so techpaul created a series of 
 PS2 Keyboard libraries. This is the second which fully supports the PS2 Keyboard Protocol, even allowing you control of keyboard LEDs (some have 4 
-LEDs) and changing settings..
+LEDs) and changing settings.
 
 The PS2 Keyboard interface is still needed for systems that have no USB and even if you have USB, you want it left for other uses.
 

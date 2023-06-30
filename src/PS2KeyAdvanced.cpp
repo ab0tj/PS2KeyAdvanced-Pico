@@ -222,7 +222,6 @@ uint8_t PS2_keystatus;        // current CAPS etc status for top byte
    Interrupt every falling incoming clock edge from keyboard */
 void PS2KeyAdvanced::ps2interrupt( void )
 {
-// Workaround for ESP32 SILICON error see extra/Porting.md
 if( _ps2mode & _TX_MODE )
   send_bit( );
 else
@@ -416,7 +415,7 @@ uint8_t val;
 _bitcount++;               // Now point to next bit
 switch( _bitcount )
   {
-  case 1: 
+  case 1:
   case 2:
   case 3:
   case 4:
@@ -424,28 +423,29 @@ switch( _bitcount )
   case 6:
   case 7:
   case 8:
-  case 9:
           // Data bits
           val = _shiftdata & 0x01;   // get LSB
           gpio_put( PS2_DataPin, val ); // send start bit
           _parity += val;            // another one received ?
           _shiftdata >>= 1;          // right _SHIFT one place for next bit
           break;
-  case 10:
+  case 9:
           // Parity - Send LSB if 1 = odd number of 1's so parity should be 0
-          gpio_put( PS2_DataPin, ( ~_parity & 1 ) );
+          // gpio_put( PS2_DataPin, ( ~_parity & 1 ) );
+          if (_parity & 1) gpio_put(PS2_DataPin, LOW);
+          else pininput(PS2_DataPin);
           break;
-  case 11: // Stop bit write change to input pull up for high stop bit
+  case 10: // Stop bit write change to input pull up for high stop bit
           pininput( PS2_DataPin );
           break;
-  case 12: // Acknowledge bit low we cannot do anything if high instead of low
+  case 11: // Acknowledge bit low we cannot do anything if high instead of low
           if( !( _now_send == PS2_KC_ECHO || _now_send == PS2_KC_RESEND ) )
             {
             _last_sent = _now_send;   // save in case of resend request
             _ps2mode |= _LAST_VALID;
             }
           // clear modes to receive again
-          _ps2mode &= ~_TX_MODE;
+          _ps2mode &= ~(_TX_MODE + _PS2_BUSY);
           if( _tx_ready & _HANDSHAKE )      // If _HANDSHAKE done
             _tx_ready &= _HANDSHAKE;                   // else we finished a command
           else
@@ -475,7 +475,7 @@ void send_now( uint8_t command )
 {
 _shiftdata = command;
 _now_send = command;     // copy for later to save in last sent
-_bitcount = 1;          // Normal processors
+_bitcount = 0;          // Normal processors
 _parity = 0;
 _ps2mode |= _TX_MODE + _PS2_BUSY;
 
@@ -490,18 +490,20 @@ if( !( _tx_ready & _HANDSHAKE ) && ( _tx_ready & _COMMAND ) )
 // Setting pin output low will cause interrupt before ready
 gpio_set_irq_enabled(PS2_IrqPin, GPIO_IRQ_EDGE_FALL, false); //detachInterrupt( digitalPinToInterrupt( PS2_IrqPin ) );
 // set pins to outputs and high
-gpio_put( PS2_DataPin, HIGH );
-gpio_set_dir( PS2_DataPin, OUTPUT );
-gpio_put( PS2_IrqPin, HIGH );
-gpio_set_dir( PS2_IrqPin, OUTPUT );
+// gpio_put( PS2_DataPin, HIGH );
+// gpio_set_dir( PS2_DataPin, OUTPUT );
+// gpio_put( PS2_IrqPin, HIGH );
+// gpio_set_dir( PS2_IrqPin, OUTPUT );
 // Essential for PS2 spec compliance
-busy_wait_us( 10 );
+busy_wait_us_32( 10 );
 // set Clock LOW
+gpio_set_dir(PS2_IrqPin, OUTPUT);
 gpio_put( PS2_IrqPin, LOW );
 // Essential for PS2 spec compliance
 // set clock low for 60us
-busy_wait_us( 60 );
+busy_wait_us_32( 60 );
 // Set data low - Start bit
+gpio_set_dir(PS2_DataPin, OUTPUT);
 gpio_put( PS2_DataPin, LOW );
 // set clock to input_pullup data stays output while writing to keyboard
 pininput( PS2_IrqPin );
@@ -600,8 +602,8 @@ void pininput( uint8_t pin )
 /* digitalWrite( pin, HIGH );
 pinMode( pin, INPUT ); */
 gpio_set_dir(pin, GPIO_IN);
-gpio_put(pin, HIGH);
 gpio_pull_up(pin);
+gpio_put(pin, HIGH);
 }
 
 void ps2_reset( void )
@@ -661,7 +663,7 @@ index = ( _rx_buffer[ index ] & 0xFF00 ) >> 8;
 
 // Catch special case of PAUSE key
 if( index & _E1_MODE )
-  return  PS2_KEY_PAUSE + _FUNCTION;
+  return  PS2_KEY_PAUSE;
 
 // Ignore anything not actual keycode but command/response
 // Return untranslated as valid
@@ -781,7 +783,7 @@ void set_lock( )
 send_byte( PS2_KC_LOCK );        // send command
 send_byte( PS2_KEY_IGNORE );     // wait ACK
 send_byte( PS2_led_lock );       // send data from internal variable
-if( ( send_byte( PS2_KEY_IGNORE ) ) ) // wait ACK
+if( ( send_byte( PS2_KEY_IGNORE ) > 0 ) ) // wait ACK
   send_next( );              // if idle start transmission
 }
 
@@ -791,7 +793,7 @@ if( ( send_byte( PS2_KEY_IGNORE ) ) ) // wait ACK
 void PS2KeyAdvanced::echo( void )
 {
 send_byte( PS2_KC_ECHO );             // send command
-if( ( send_byte( PS2_KEY_IGNORE ) ) ) // wait data PS2_KC_ECHO
+if( ( send_byte( PS2_KEY_IGNORE ) > 0 ) ) // wait data PS2_KC_ECHO
   send_next( );                   // if idle start transmission
 }
 
@@ -803,7 +805,7 @@ void PS2KeyAdvanced::readID( void )
 send_byte( PS2_KC_READID );           // send command
 send_byte( PS2_KEY_IGNORE );          // wait ACK
 send_byte( PS2_KEY_IGNORE );          // wait data
-if( ( send_byte( PS2_KEY_IGNORE ) ) ) // wait data
+if( ( send_byte( PS2_KEY_IGNORE ) > 0 ) ) // wait data
   send_next( );                   // if idle start transmission
 }
 
@@ -816,7 +818,7 @@ send_byte( PS2_KC_SCANCODE );         // send command
 send_byte( PS2_KEY_IGNORE );          // wait ACK
 send_byte( 0 );                       // send data 0 = read
 send_byte( PS2_KEY_IGNORE );          // wait ACK
-if( ( send_byte( PS2_KEY_IGNORE ) ) ) // wait data
+if( ( send_byte( PS2_KEY_IGNORE ) > 0 ) ) // wait data
   send_next( );                   // if idle start transmission
 }
 
@@ -864,7 +866,7 @@ void PS2KeyAdvanced::resetKey( )
 {
 send_byte( PS2_KC_RESET );            // send command
 send_byte( PS2_KEY_IGNORE );          // wait ACK
-if( ( send_byte( PS2_KEY_IGNORE ) ) ) // wait data PS2_KC_BAT or PS2_KC_ERROR
+if( ( send_byte( PS2_KEY_IGNORE ) > 0 ) ) // wait data PS2_KC_BAT or PS2_KC_ERROR
   send_next( );                        // if idle start transmission
 // LEDs and KeyStatus Reset too... to match keyboard
 PS2_led_lock = 0;
@@ -891,7 +893,7 @@ if( rate > 31 || delay > 3 )
 send_byte( PS2_KC_RATE );             // send command
 send_byte( PS2_KEY_IGNORE );          // wait ACK
 send_byte( ( delay << 5 ) + rate );   // Send values
-if( ( send_byte( PS2_KEY_IGNORE ) ) ) // wait ACK
+if( ( send_byte( PS2_KEY_IGNORE ) > 0 ) ) // wait ACK
   send_next( );                   // if idle start transmission
 return 0;
 }
@@ -985,5 +987,5 @@ pininput( PS2_DataPin );           /* Setup Data pin */
 
 // Start interrupt handler
 gpioCallback = cb;
-gpio_set_irq_enabled_with_callback(PS2_IrqPin, GPIO_IRQ_EDGE_FALL, true, cb);
+gpio_set_irq_enabled_with_callback(PS2_IrqPin, GPIO_IRQ_EDGE_FALL, true, gpioCallback);
 }
