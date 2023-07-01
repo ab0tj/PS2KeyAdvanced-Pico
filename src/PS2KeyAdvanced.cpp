@@ -400,6 +400,21 @@ switch( value )
 return state;
 }
 
+/* PS2 is an open-collector protocol... Don't push it high. */
+void set_data(bool val)
+{
+  if (val)
+  {
+    gpio_set_dir(PS2_DataPin, GPIO_IN);
+    gpio_pull_up(PS2_DataPin);
+    gpio_put(PS2_DataPin, HIGH);
+  }
+  else
+  {
+    gpio_set_dir(PS2_DataPin, GPIO_OUT);
+    gpio_put(PS2_DataPin, LOW);
+  }
+}
 
 /* Send data to keyboard
    Data pin direction should already be changed
@@ -425,15 +440,14 @@ switch( _bitcount )
   case 8:
           // Data bits
           val = _shiftdata & 0x01;   // get LSB
-          gpio_put( PS2_DataPin, val ); // send start bit
+          set_data(val); // send start bit
           _parity += val;            // another one received ?
           _shiftdata >>= 1;          // right _SHIFT one place for next bit
           break;
   case 9:
           // Parity - Send LSB if 1 = odd number of 1's so parity should be 0
           // gpio_put( PS2_DataPin, ( ~_parity & 1 ) );
-          if (_parity & 1) gpio_put(PS2_DataPin, LOW);
-          else pininput(PS2_DataPin);
+          set_data(~_parity & 1);
           break;
   case 10: // Stop bit write change to input pull up for high stop bit
           pininput( PS2_DataPin );
