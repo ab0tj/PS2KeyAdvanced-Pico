@@ -461,7 +461,7 @@ switch( _bitcount )
           // clear modes to receive again
           _ps2mode &= ~(_TX_MODE + _PS2_BUSY);
           if( _tx_ready & _HANDSHAKE )      // If _HANDSHAKE done
-            _tx_ready &= _HANDSHAKE;                   // else we finished a command
+            _tx_ready &= ~_HANDSHAKE;      // clear handshake state and resume queued command processing
           else
             _tx_ready &= ~_COMMAND;
           if( !( _ps2mode & _WAIT_RESPONSE ) )   //  if not wait response
@@ -629,9 +629,15 @@ _tx_ready = 0;
 _response_count = 0;
 _head = 0;
 _tail = 0;
+_key_head = 0;
+_key_tail = 0;
 _bitcount = 0;
 PS2_keystatus = 0;
 PS2_led_lock = 0;
+PS2_lockstate[ 0 ] = 0;
+PS2_lockstate[ 1 ] = 0;
+PS2_lockstate[ 2 ] = 0;
+PS2_lockstate[ 3 ] = 0;
 _ps2mode = 0;
 }
 
