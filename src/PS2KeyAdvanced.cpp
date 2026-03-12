@@ -404,11 +404,7 @@ return state;
 void set_data(bool val)
 {
   if (val)
-  {
-    gpio_set_dir(PS2_DataPin, GPIO_IN);
-    gpio_pull_up(PS2_DataPin);
-    gpio_put(PS2_DataPin, HIGH);
-  }
+    pininput( PS2_DataPin );
   else
   {
     gpio_set_dir(PS2_DataPin, GPIO_OUT);
@@ -610,7 +606,7 @@ if( ret != _tx_tail )
 return -4;
 }
 
-// initialize a data pin for input
+// Configure pin as open-collector idle/input with pull-up
 void pininput( uint8_t pin )
 {
 /* digitalWrite( pin, HIGH );
